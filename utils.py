@@ -47,19 +47,31 @@ def calculate_cross_line(line1, line2):
 
 
 def Draw_results(img, fb1, fb2, fr1, fr2, mask, conf=0.5, img_size=512):
+    
+    # 입력 이미지의 원본 높이와 너비를 가져옴
     height, width = img.shape[0], img.shape[1]
+    
+    # 정사각형 입력 이미지(512x512)로부터 패딩 제거를 위한 오프셋 계산
     padh = (width - height) // 2
+    
+    # feature map 크기만큼 반복
     for i in range(feature_size_h):
         for j in range(feature_size_w):
-            # if contains object
-            if fb1[i][j] >= conf:
-                x0 = j * stride_w
+
+            # -------------------------------
+            # 수평선 (blue line) 그리기
+            # -------------------------------
+            if fb1[i][j] >= conf: # confidence가 threshold 이상일 경우만 그리기
+                x0 = j * stride_w # 원본 크기 기준 feature 위치 → 이미지 위치
                 y0 = i * stride_h
+                
+                # fb2는 [4, H, W]: dx1, dy1, dx2, dy2
                 x1 = x0 + int(fb2[0][i][j] * stride_w)
                 y1 = y0 + int(fb2[1][i][j] * stride_h)
                 x2 = x0 + int(fb2[2][i][j] * stride_w)
                 y2 = y0 + int(fb2[3][i][j] * stride_h)
-                # transfer the coordinate in size (512, 512) to the coordinate in original size (height, width)
+                
+                # transfer the coordinate in size (512, 512) to the coordinate in original size (height, width), # 네트워크 입력 해상도(512) 기준 → 원래 이미지 해상도로 좌표 변환
                 xr1 = int(x1 / img_size * width)
                 yr1 = int(y1 / img_size * width) - padh
                 xr2 = int(x2 / img_size * width)
@@ -67,7 +79,9 @@ def Draw_results(img, fb1, fb2, fr1, fr2, mask, conf=0.5, img_size=512):
                 xr1, yr1, xr2, yr2 = min(xr1, width), min(yr1, height), min(xr2, width), min(yr2, height)
                 cv2.line(img, (xr1, yr1), (xr2, yr2), (255, 0, 0), 2)
 
-            # if contains object
+            # -------------------------------
+            # 수직선 (red line) 그리기
+            # -------------------------------
             if fr1[i][j] >= conf:
                 x0 = j * stride_w
                 y0 = i * stride_h
@@ -82,14 +96,25 @@ def Draw_results(img, fb1, fb2, fr1, fr2, mask, conf=0.5, img_size=512):
                 yr2 = int(y2 / img_size * width) - padh
                 xr1, yr1, xr2, yr2 = min(xr1, width), min(yr1, height), min(xr2, width), min(yr2, height)
                 cv2.line(img, (xr1, yr1), (xr2, yr2), (0, 0, 255), 2)
-    # Process predicted mask
-    _, pred_mask = torch.max(mask, 1)
+                
+    # -------------------------------
+    # 마스크 시각화
+    # -------------------------------
+    
+    # mask: (1, 3, H, W) → 각 픽셀에서 가장 높은 class index를 얻음 (0, 1, 2)
+    _, pred_mask = torch.max(mask, 1) # 채널 방향에서 최대값의 index (argmax)
+    
+    # 텐서를 CPU로 옮기고 numpy array로 변환
     pred_mask = pred_mask.cpu().data
     pred_mask = pred_mask.permute(1, 2, 0).numpy()
+    
+    # 클래스별 색상 마스크(one-hot)로 변환하여 시각화용 RGB mask 생성
     pred_mask = mask_to_onehot(pred_mask) * 255
-    # Resize and padded
+    
+    # 입력 이미지 크기에 맞게 resize (마스크는 정사각형)
     pred_mask = cv2.resize(pred_mask, (width, width))
     pred_mask = pred_mask[padh: padh + height, :]
-    # Draw mask
+    
+    # 원본 이미지와 마스크를 blending
     img = cv2.addWeighted(img, 0.7, pred_mask, 0.3, 0)
-    return img
+    return img  # 시각화 완료된 이미지 반환
